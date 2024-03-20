@@ -1,0 +1,109 @@
+#
+# This is a Shiny web application. You can run the application by clicking
+# the 'Run App' button above.
+#
+# Find out more about building applications with Shiny here:
+#
+#    http://shiny.rstudio.com/
+#
+
+library(shiny)
+library(randomForest)
+library(magrittr)
+library(readr)
+library(shinyjs)
+library(ggplot2)
+library(randomForestSRC)
+
+model <- read_rds(file="model.RDS")
+topvaris <- read_rds(file="topvaris.RDS")
+
+jscode <- "shinyjs.closeWindow = function() { window.close(); }"
+
+# Define UI for application
+ui <- fluidPage(
+  
+  # Application title
+  titlePanel("Random forest predictor for eMRT subgroups based on DNA methylation"),
+  sidebarLayout(
+    sidebarPanel(
+      p("Upload the beta values for your eMRT sample in .rds format here:"),
+    
+  fileInput('datafile', 'Upload dataset', multiple = FALSE, accept = c('.rds')),
+  actionButton("go", "Predict"),
+  br(),
+  br(),
+  br(),
+  br(),
+  img(src = "Logo.png", height="50%", width="50%", align = "right")
+  )
+  , 
+  mainPanel(
+    p("DNA methylationsubgroups for eMRTs are predicted based on the methylation value of 100 CpG sites. "),
+    p("Details about input and prediction model can be found in Fincke, Steinbügl et al., 2024"),
+    p("-once the paper is published Journal, doi etc will apprear here- "),
+    p("Kaplan-Meier curves for the three DNA methylation subgroups from Fincke, Steinbügl et. al: "),
+    img(src = "kaplan_eMRT.png", height="75%", width="75%"),
+    h4("Prediction:"),
+    p("Probabilities of the sample belonging to each of the three DNA methylation subgroups"),
+    verbatimTextOutput("predRes"),
+    br(),
+    br(),
+    p("technical details for prediction"),
+  verbatimTextOutput("pred"),
+  p("for research use only")
+  )
+  )
+  ,
+  useShinyjs(),
+  extendShinyjs(text = jscode, functions = c("closeWindow")),
+  actionButton("close", "Close window")
+)
+
+# Define server logic required to draw a histogram
+server <- function(input, output) {
+  
+  data <- reactive({
+    req(input$datafile)
+    readRDS(input$datafile$datapath)
+  })
+  
+  prediction <- eventReactive(input$go, {
+    dataR <- data()[,names(data()) %in% topvaris]
+    pred <- predict(model, newdata = dataR)
+    print(pred)
+  
+  })
+  
+  predictionRes <- eventReactive(input$go, { 
+    dataR <- data()[,names(data()) %in% topvaris]
+    pred <- predict(model, newdata = dataR)
+     predicted_values <- pred$predicted
+  result_table <- data.frame(
+    "extra-renal eMRT-like" = predicted_values[1]*100,
+    "eMRT_TBX4" = predicted_values[2]*100,
+    "RTK-like" = predicted_values[3]*100
+  )
+  rownames(result_table)<- "Probability(in %)"
+  print(result_table)
+  })
+  
+  
+  output$predRes <- renderPrint({
+    predictionRes()
+  })
+  
+  output$pred <- renderPrint({
+    prediction()
+  })
+  
+
+  
+  observeEvent(input$close, {
+    js$closeWindow()
+    stopApp()
+  })
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
