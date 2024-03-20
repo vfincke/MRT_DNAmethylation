@@ -1,0 +1,174 @@
+# Load required libraries
+library(readxl)        # For reading Excel files
+library(Rtsne)         # For t-SNE dimensionality reduction
+library(ConsensusClusterPlus) # For consensus clustering
+library(pheatmap)      # For creating heatmaps
+library(survival)      # For survival analysis
+library(survminer)     # For survival plots
+library(tidyverse)     # For data manipulation
+library(randomForestSRC) # For random forest analysis
+
+# Load data
+Betas <- readRDS("path_to_betas.rds")  # Load beta values
+annoTable <- read_xlsx("path_to_datatable.xlsx")  # Load annotation table
+
+# Calculate standard deviation and select top 1000 rows
+stdev <- apply(Betas, 1, sd)  # Calculate standard deviation for each row
+stdevsort <- sort(stdev, decreasing=TRUE)  # Sort standard deviations in descending order
+List <- match(names(stdevsort)[1:1000], rownames(Betas))  # Select top 1000 rows based on standard deviation
+reduced <- Betas[List, ]  # Subset data to include only top 1000 rows
+
+# Perform t-SNE dimensionality reduction
+result_tSNE_ <- Rtsne(t(reduced), perplexity = 25)  # Perform t-SNE with perplexity of 25
+
+# Extract t-SNE coordinates
+df <- data.frame(result_tSNE_$Y[, 1], result_tSNE_$Y[, 2])  # Create dataframe with t-SNE coordinates
+colnames(df) <- c("coord1", "coord2")  # Rename columns
+
+# Heatmap
+my_sample_col <- data.frame(Subgroup = annoTable$subgroup)  # Create sample annotation dataframe
+row.names(my_sample_col) <- annoTable$IDAT  # Set row names
+colnames(reduced) == rownames(my_sample_col)  # Check if column names match row names
+my_color <- list(Subgroup = c(SHH = "#213976", TYR = "#851A1A", MYC = "#136736", 
+                              `extra-renal eMRT-like` = "#FA7280", eMRT_TBX4 = "#72FA80", RTK-like = "#8072FA"))  # Define colors for annotation
+pheatmap(reduced, cluster_rows = TRUE, cluster_cols = TRUE, 
+         annotation_col = my_sample_col, annotation_colors = my_color,
+         show_rownames = FALSE, show_colnames = FALSE)  # Create heatmap
+
+# Subset the beta values for eMRT samples
+MRTbetas <- Betas[, which(annoTable$diagnosis == "eMRT")]  # Subset beta values for eMRT samples
+matchvector <- match(colnames(MRTbetas), annoTable$`Array Name`)  # Match column names with array names in annotation table
+annoTableMRT <- annoTableMRT[matchvector,]  # Subset annotation table to match beta values
+
+# Calculate standard deviation for each row (probe)
+stdev <- apply(MRTbetas, 1, sd)  # Calculate standard deviation for each row
+stdevsort <- sort(stdev, decreasing = TRUE)  # Sort standard deviations in descending order
+
+# Select the top 10,000 probes based on standard deviation
+List <- match(names(stdevsort)[1:10000], rownames(MRTbetas))  # Select top 10,000 probes
+reduced <- MRTbetas[List,]  # Subset data to include only top 10,000 probes
+
+# Consensus clustering
+results <- ConsensusClusterPlus(reducedt, maxK=8, reps=1000,
+                                pItem=0.8, pFeature=1, 
+                                title="eMRTs",
+                                clusterAlg="km",
+                                distance="euclidean",
+                                writeTable = TRUE,
+                                seed=1262118388.71279)
+
+# Perform tSNE dimensionality reduction
+result_tSNE <- Rtsne(t(reduced), perplexity = 11)  # Perform t-SNE with perplexity of 11
+
+# Create a dataframe for tSNE results
+df <- data.frame(result_tSNE$Y[, 1], result_tSNE$Y[, 2])  # Create dataframe with t-SNE coordinates
+colnames(df) <- c("coord1", "coord2")  # Rename columns
+
+# Create a scatter plot for tSNE
+tsneplot <- ggplot() + geom_point(aes(x = df$"coord1", y = df$"coord2"))  # Create scatter plot
+
+# Alternative way to create scatter plot
+plot(result_tSNE$Y[, 1] ~ result_tSNE$Y[, 2], pch = 19, col = "black", xlab = "tSNE1", ylab = "tSNE2")  # Create scatter plot
+
+
+
+
+# Generate a heatmap with clustering for rows and columns
+pheatmap(
+  data_matrix,                     # Your data matrix (replace 'data_matrix' with your data)
+  cluster_rows = TRUE,             # Cluster rows
+  cluster_cols = TRUE,             # Cluster columns
+  annotation_col = sample_annotation, # Column annotation 
+  annotation_colors = color_annotation, # Color annotation
+  show_rownames = FALSE,           # Do not show row names
+  show_colnames = FALSE,           # Do not show column names
+  cutree_cols = 3                  # Number of clusters for columns
+)
+
+
+
+# Fit Kaplan-Meier survival curves
+fit <- survfit(Surv(as.numeric(time), as.numeric(status)) ~ group_variable, data = data)
+
+# Plot Kaplan-Meier survival curves
+ggsurvplot(
+  fit,                    # survfit object with calculated statistics
+  data = data,        # Data used to fit survival curves
+  risk.table = FALSE,        # Do not show risk table
+  pval = TRUE,               # Show p-value of log-rank test
+  conf.int = FALSE,          # Do not show confidence intervals for point estimates of survival curves
+  xlim = c(0, 15),           # X-axis limits
+  break.time.by = 3,         # Break X-axis in time intervals
+  ggtheme = theme_minimal(), # Customize plot with a theme
+  risk.table.y.text.col = TRUE, # Color risk table text annotations
+  risk.table.y.text = TRUE,  # Show bars instead of names in text annotations in legend of risk table
+  xlab = "Time (years)",     # X-axis label
+  legend.title = "Molecular Cohort"  # Legend title
+)
+
+# Perform univariate Cox regression
+cox_uni <- coxph(Surv(as.numeric(time), as.numeric(status)) ~ predictor_variable, data = data) # Replace 'time', 'status', and 'predictor_variable' with your data
+summary(cox_uni)  # Summarize Cox regression results
+
+
+# Perform multivariate Cox regression
+cox_multi <- coxph(Surv(as.numeric(time), as.numeric(status)) ~ AgeGroup + RTPS + Gender + GTR, 
+                   data = data)
+summary(cox_multi)  # Summarize multivariate Cox regression results
+
+# Perform chi-square/Fisher's exact tests
+cross_table <- xtabs(~variable1 + variable2, data = data)  # Replace 'variable1', 'variable2', and 'data' with your data
+n <- sum(cross_table)
+expected_freq <- outer(rowSums(cross_table), colSums(cross_table)) / n
+chisq.test(data$variable1, data$variable2)  # Chi-square test
+fisher.test(data$variable1, data$variable4)  # Fisher's exact test
+fisher.test(data$variable1, data$variable5, simulate.p.value = TRUE)  # Fisher's exact test
+
+
+
+##random forest model to predict subgroup 
+
+# Combine subgroup column from annoTableMRT with reduced10k matrix and convert to data frame
+rfDataMatrix <- cbind(annoTableMRT$subgroup, t(reduced10k))
+rfData <- as.data.frame(rfDataMatrix)
+
+# Convert the first column (V1 = Subgroups) to factor
+rfData$V1 <- as.factor(rfData$V1)
+
+# Fit random forest model to predict subgroup
+subgr_obj <- rfsrc(V1  ~ ., data = rfData)
+
+# Run random forest with specified parameters and extract used variables
+xvar.used <- rfsrc(V1 ~ ., rfData, nodedepth = 6,
+                   var.used = ".trees", mtry = Inf, nsplit = 100)$var.used
+
+# Filter variables used in the forest
+xvar.keep <- names(xvar.used)[xvar.used >= 1]
+
+# Fit random forest model using the filtered variables
+o <- rfsrc(V1 ~ ., rfData[, c("V1", xvar.keep)])
+print(o)
+
+# Select top variables based on importance
+vs.obj <- var.select(object = o)
+topvaris <- vs.obj$topvars
+
+# Subset rfData using top variables
+ssrfsData <- rfData[, topvaris]
+ssrfsData$V1 <- rfData$V1
+
+# For reduced variables
+
+# Fit random forest model to predict subgroup using reduced variables
+redsubgr_obj <- rfsrc(V1  ~ ., data = ssrfsData)
+
+# Run random forest with specified parameters and extract used variables for reduced dataset
+redxvar.used <- rfsrc(V1 ~ ., ssrfsData, nodedepth = 6,
+                      var.used = ".trees", mtry = Inf, nsplit = 100)$var.used
+
+# Filter variables used in the forest for reduced dataset
+redxvar.keep <- names(redxvar.used)[redxvar.used >= 1]
+
+# Fit random forest model using the filtered variables for reduced dataset
+o.red <- rfsrc(V1 ~ ., rfData[, c("V1", redxvar.keep)])
+print(o.red)
